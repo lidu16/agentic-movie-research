@@ -14,20 +14,7 @@ A hybrid Retrieval-Augmented Generation (RAG) system for movies, powered by **Ne
 
 The system follows a multi-path retrieval strategy:
 
-```mermaid
-graph TD
-    Start([Start]) --> Introspect[Introspect Graph Schema]
-    
-    Introspect --> Agent[Identify Entities (Agent)]
-    Introspect --> Vector[Retrieve Documents (Vector Store)]
-    
-    Agent --> Lookup[Lookup Graph Data]
-    
-    Lookup --> Answer[Generate Answer]
-    Vector --> Answer
-    
-    Answer --> End([End])
-```
+![LangGraph Pipeline Diagram](graph-diagram.png)
 
 ## Installation
 
