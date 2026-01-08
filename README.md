@@ -16,6 +16,12 @@ The system follows a multi-path retrieval strategy:
 
 ![LangGraph Pipeline Diagram](graph-diagram.png)
 
+## Demonstration
+
+The following screenshot shows the assistant aggregating data from both the **Knowledge Graph** (nodes/relations) and the **Document Store** (plot descriptions) to answer a complex query.
+
+![Hybrid RAG Demonstration](hybrid-rag-demo.png)
+
 ## Installation
 
 1.  **Clone the repository:**
