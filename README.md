@@ -11,12 +11,6 @@ A hybrid Retrieval-Augmented Generation (RAG) system for movies, powered by **Ne
 - **Interactive UI**: Built with Streamlit for easy interaction and visualization.
 - **LangSmith Tracing**: Optional run tracing for observability and debugging.
 
-## Architecture
-
-The system follows a multi-path retrieval strategy:
-
-![LangGraph Pipeline Diagram](graph-diagram.png)
-
 ## Demonstration
 
 The following screenshot shows the assistant aggregating data from both the **Knowledge Graph** (nodes/relations) and the **Uploaded Document Store** (PDF/TXT chunks) to answer a complex query.
