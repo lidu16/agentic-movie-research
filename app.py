@@ -1,25 +1,17 @@
-"""
-Streamlit Frontend for Neo4j Movies RAG.
-"""
-
 import streamlit as st
 import time
 import os
 from core.config import config
+from core.langsmith_setup import setup_langsmith
 from knowledge_graph.neo4j_reader import get_reader
-from document_store.vector_store import initialize_vector_store
+from document_store.session_store import SessionVectorStore
+from core.doc_processor import process_uploaded_file
 from core.rag_pipeline import build_pipeline, get_pipeline_diagram
 import streamlit.components.v1 as components
 
-# ... (Previous imports match)
 
-# Mermaid Renderer
-# Mermaid Renderer
 def mermaid(code: str):
-    # Strip LangGraph frontmatter usually formatted as:
-    # ---
-    # config: ...
-    # ---
+  
     if "---" in code:
         parts = code.split("---")
         if len(parts) >= 3:
@@ -49,10 +41,57 @@ def mermaid(code: str):
         scrolling=True
     )
 
+
+def render_retrieval_verification(info: dict, title: str = "🔍 Retrieval Verification", expanded: bool = False):
+    with st.expander(title, expanded=expanded):
+        selected_agents = info.get("selected_agents", [])
+        if selected_agents:
+            st.caption(f"Agents: {', '.join(selected_agents)}")
+
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("### 🕸️ Knowledge Graph")
+            st.metric("Nodes", info.get("node_count", 0))
+            st.metric("Relations", info.get("rel_count", 0))
+            graph_context = info.get("graph_context", "")
+            if graph_context:
+                st.caption("Excerpt:")
+                st.code(graph_context[:500] + ("..." if len(graph_context) > 500 else ""))
+            else:
+                st.info("No graph matches.")
+
+        with c2:
+            st.markdown("### 📄 Document Store")
+            st.metric("Documents", info.get("session_count", 0))
+            session_context = info.get("session_context", "")
+            if session_context:
+                st.caption("Excerpt:")
+                st.code(session_context[:500] + ("..." if len(session_context) > 500 else ""))
+            else:
+                st.info("No uploaded document matches.")
+
+        web_context = info.get("web_context", "")
+        if web_context:
+            st.markdown("### 🌐 Web Context")
+            st.code(web_context[:900] + ("..." if len(web_context) > 900 else ""))
+
+        web_error = info.get("web_error", "")
+        if web_error:
+            st.warning(f"Web search status: {web_error}")
+
+if "session_store" not in st.session_state:
+    st.session_state.session_store = SessionVectorStore()
+
+langsmith_status = setup_langsmith()
+
 with st.sidebar:
     st.title("🎬 Configuration")
     
     st.subheader("System Status")
+    if langsmith_status.get("enabled"):
+        st.success(f"LangSmith tracing ON ({langsmith_status.get('project')})")
+    else:
+        st.info(f"LangSmith tracing OFF: {langsmith_status.get('reason', 'Not configured')}")
     try:
         reader = get_reader()
         summary = reader.get_schema_summary()
@@ -68,7 +107,7 @@ with st.sidebar:
             st.caption("LangGraph Workflow")
             # Fallback to static image if dynamic rendering fails
             if os.path.exists("graph-diagram.png"):
-                st.image("graph-diagram.png", use_container_width=True)
+                st.image("graph-diagram.png", width="stretch")
             else:
                 st.warning("Pipeline diagram not found.")
             
@@ -77,6 +116,21 @@ with st.sidebar:
 
     st.markdown("---")
     res = st.toggle("Show Retrieval Details", value=True)
+    
+    st.markdown("### 📄 Document Upload")
+    uploaded_file = st.file_uploader("Upload PDF/TXT", type=["pdf", "txt"])
+    
+    if uploaded_file:
+        file_key = f"processed_{uploaded_file.name}"
+        if file_key not in st.session_state:
+            with st.spinner("Processing Document..."):
+                docs = process_uploaded_file(uploaded_file)
+                st.session_state.session_store.clear() # Clear old docs for now (simple mode)
+                st.session_state.session_store.add_documents(docs)
+                st.session_state[file_key] = True
+            st.success(f"Loaded {len(docs)} chunks!")
+        else:
+            st.info("Document ready.")
 
 
 @st.cache_resource
@@ -85,9 +139,6 @@ def init_resources():
     if not config.validate():
         st.error("Missing configuration! Check your .env file.")
         st.stop()
-    
-    with st.spinner("📚 Loading Movie Documents..."):
-        initialize_vector_store()
     
     pipeline = build_pipeline()
     return pipeline
@@ -105,8 +156,8 @@ if pipeline is None:
 
 
 
-st.title("🎬 Movies Knowledge Assistant")
-st.markdown("Ask about movies, actors, plots, and more! Integrates **Knowledge Graph** + **Vector Search**.")
+st.title("🎬 Intelligent Movie Researcher")
+st.markdown("Ask about movies, uploaded scripts, or browse the web for latest info.")
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -117,38 +168,23 @@ for message in st.session_state.messages:
         
         
         if "retrieval_info" in message:
-            with st.expander("🔍 Retrieval Verification"):
-                info = message["retrieval_info"]
-                
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.markdown("### 🕸️ Knowledge Graph")
-                    st.metric("Nodes", info["node_count"])
-                    st.metric("Relations", info["rel_count"])
-                    if info["graph_context"]:
-                        st.caption("Excerpt:")
-                        st.code(info["graph_context"][:300] + "...")
-                        
-                with c2:
-                    st.markdown("### 📚 Document Store")
-                    st.metric("Documents", info["doc_count"])
-                    if info["doc_context"]:
-                        st.caption("Excerpt:")
-                        st.code(info["doc_context"][:300] + "...")
+            info = message["retrieval_info"]
+            route = info.get("route", "unknown").upper()
+            render_retrieval_verification(info, title=f"🔍 Retrieval Verification ({route})", expanded=False)
 
 
 st.markdown("### 💡 Suggested Questions")
 c1, c2, c3 = st.columns(3)
 suggestion = None
 
-if c1.button("🕸️ Who directed The Matrix?", use_container_width=True):
+if c1.button("🕸️ Who directed The Matrix?", width="stretch"):
     suggestion = "Who directed The Matrix?"
-if c2.button("📚 Plot of Inception?", use_container_width=True):
-    suggestion = "What is the plot of Inception?"
-if c3.button("✨ Director & Plot of Forrest Gump?", use_container_width=True):
-    suggestion = "Who directed Forrest Gump and what is the movie about?"
+if c2.button("📄 Summarize uploaded file", width="stretch"):
+    suggestion = "Summarize the uploaded document."
+if c3.button("🌐 Box Office Gladiator 2?", width="stretch"):
+    suggestion = "What is the current box office usage for Gladiator 2?"
 
-prompt = st.chat_input("Ask a question (e.g., 'Who is Neo?')")
+prompt = st.chat_input("Ask a question...")
 
 if suggestion:
     prompt = suggestion
@@ -159,41 +195,46 @@ if prompt:
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
+        with st.spinner("Thinking & Routing..."):
             
             start = time.time()
             
-            result = pipeline.invoke({"question": prompt})
+            # INVOKE PIPELINE WITH SESSION STORE
+            result = pipeline.invoke({
+                "question": prompt, 
+                "session_store": st.session_state.session_store
+            })
             
             answer = result.get("answer", "No answer generated.")
+            route = result.get("route", "unknown")
+            selected_agents = result.get("selected_agents", [])
             
             retrieval_info = {
+                "route": route,
+                "selected_agents": selected_agents,
                 "node_count": result.get("node_count", 0),
                 "rel_count": result.get("relationship_count", 0),
-                "doc_count": result.get("doc_count", 0),
+                "session_count": result.get("session_count", 0),
                 "graph_context": result.get("graph_context", ""),
-                "doc_context": result.get("doc_context", "")
+                "session_context": result.get("session_context", ""),
+                "web_context": result.get("web_context", ""),
+                "web_error": result.get("web_error", "")
             }
             
             duration = time.time() - start
             
             st.markdown(answer)
-            st.caption(f"⏱️ Generated in {duration:.2f}s")
+            if selected_agents:
+                st.caption(f"⏱️ Generated in {duration:.2f}s via **{route.upper()}** | Agents: **{', '.join(selected_agents)}**")
+            else:
+                st.caption(f"⏱️ Generated in {duration:.2f}s via **{route.upper()}**")
             
             if res:
-                with st.expander("🔍 Live Retrieval Context", expanded=True):
-                    c1, c2 = st.columns(2)
-                    c1.markdown("#### 🕸️ Graph Context")
-                    if retrieval_info["graph_context"]:
-                        c1.text(retrieval_info["graph_context"])
-                    else:
-                        c1.warning("No graph matches.")
-                        
-                    c2.markdown("#### 📚 Document Context")
-                    if retrieval_info["doc_context"]:
-                        c2.text(retrieval_info["doc_context"])
-                    else:
-                        c2.warning("No document matches.")
+                render_retrieval_verification(
+                    retrieval_info,
+                    title=f"🔍 Retrieval Verification ({route.upper()})",
+                    expanded=True,
+                )
     
     st.session_state.messages.append({
         "role": "assistant", 

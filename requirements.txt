@@ -5,3 +5,9 @@ langgraph
 python-dotenv
 numpy
 google-generativeai
+pypdf
+tavily-python
+duckduckgo-search
+langchain
+langchain-text-splitters
+langsmith

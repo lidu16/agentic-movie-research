@@ -1,9 +1,0 @@
-# Neo4j Movies RAG Pipeline
-neo4j>=5.0.0
-google-generativeai>=0.3.0
-langchain>=0.1.0
-langchain-google-genai>=1.0.0
-langgraph>=0.0.40
-python-dotenv>=1.0.0
-numpy>=1.24.0
-streamlit>=1.30.0

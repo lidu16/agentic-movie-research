@@ -7,6 +7,69 @@ from knowledge_graph.neo4j_reader import get_reader
 import json
 import re
 
+
+def _safe_parse_plan(content: str, question: str) -> dict[str, Any]:
+    cleaned = content.strip()
+    if cleaned.startswith("```json"):
+        cleaned = cleaned[7:]
+    if cleaned.startswith("```"):
+        cleaned = cleaned[3:]
+    if cleaned.endswith("```"):
+        cleaned = cleaned[:-3]
+    cleaned = cleaned.strip()
+
+    def fallback() -> dict[str, Any]:
+        return {
+            "strategy": "search",
+            "keywords": re.findall(r"\b[a-zA-Z0-9]+\b", question.lower()),
+        }
+
+    if not cleaned:
+        return fallback()
+
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError:
+        parsed = None
+        decoder = json.JSONDecoder()
+        for idx, ch in enumerate(cleaned):
+            if ch != "{":
+                continue
+            try:
+                candidate, _ = decoder.raw_decode(cleaned[idx:])
+                if isinstance(candidate, dict):
+                    parsed = candidate
+                    break
+            except json.JSONDecodeError:
+                continue
+
+    if not isinstance(parsed, dict):
+        return fallback()
+
+    strategy = str(parsed.get("strategy", "")).strip().lower()
+    if strategy not in {"search", "query"}:
+        if parsed.get("cypher"):
+            strategy = "query"
+        else:
+            strategy = "search"
+
+    if strategy == "search":
+        raw_keywords = parsed.get("keywords", [])
+        if isinstance(raw_keywords, str):
+            keywords = re.findall(r"\b[a-zA-Z0-9]+\b", raw_keywords.lower())
+        elif isinstance(raw_keywords, list):
+            keywords = [str(item).strip().lower() for item in raw_keywords if str(item).strip()]
+        else:
+            keywords = []
+        if not keywords:
+            keywords = re.findall(r"\b[a-zA-Z0-9]+\b", question.lower())
+        return {"strategy": "search", "keywords": keywords}
+
+    cypher = str(parsed.get("cypher", "")).strip()
+    if not cypher:
+        return fallback()
+    return {"strategy": "query", "cypher": cypher}
+
 def generate_graph_plan(question: str, schema: str = "") -> dict[str, Any]:
     """
     [AGENT] Decides whether to:
@@ -51,19 +114,11 @@ def generate_graph_plan(question: str, schema: str = "") -> dict[str, Any]:
         """
         
         response = llm.invoke(prompt)
-        content = response.content.strip()
-        
-        # Clean markdown if present
-        if content.startswith("```json"):
-            content = content[7:-3]
-        elif content.startswith("```"):
-            content = content[3:-3]
-            
-        return json.loads(content)
+        content = str(response.content)
+        return _safe_parse_plan(content, question)
         
     except Exception as e:
-        print(f"⚠️ Agent Planning Error: {e}")
-        # Fallback to simple keyword extraction
+        print(f"⚠️ Agent planning fallback: {e}")
         return {"strategy": "search", "keywords": re.findall(r'\b[a-zA-Z0-9]+\b', question.lower())}
 
 
