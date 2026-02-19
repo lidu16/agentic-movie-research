@@ -21,7 +21,7 @@ The system follows a multi-path retrieval strategy:
 
 The following screenshot shows the assistant aggregating data from both the **Knowledge Graph** (nodes/relations) and the **Uploaded Document Store** (PDF/TXT chunks) to answer a complex query.
 
-![Hybrid RAG Demonstration](hybrid-rag-demo.png)
+![Hybrid RAG Demonstration](graph-diagram.png)
 
 ## Installation
 
