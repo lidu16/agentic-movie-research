@@ -7,7 +7,7 @@ numpy
 google-generativeai
 pypdf
 tavily-python
-duckduckgo-search
+ddgs
 langchain
 langchain-text-splitters
 langsmith

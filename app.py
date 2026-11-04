@@ -10,6 +10,26 @@ from core.rag_pipeline import build_pipeline, get_pipeline_diagram
 import streamlit.components.v1 as components
 
 
+st.set_page_config(
+    page_title="Intelligent Movie Researcher",
+    page_icon="🎬",
+    layout="wide",
+)
+
+AGENT_DISPLAY_NAMES = {
+    "neo4j": "Knowledge graph",
+    "rag": "Uploaded documents",
+    "web": "Web search",
+}
+
+ROUTE_DISPLAY_NAMES = {
+    "graph": "Knowledge graph",
+    "document": "Uploaded documents",
+    "search": "Web search",
+    "multi": "Hybrid research",
+}
+
+
 def mermaid(code: str):
   
     if "---" in code:
@@ -46,7 +66,11 @@ def render_retrieval_verification(info: dict, title: str = "🔍 Retrieval Verif
     with st.expander(title, expanded=expanded):
         selected_agents = info.get("selected_agents", [])
         if selected_agents:
-            st.caption(f"Agents: {', '.join(selected_agents)}")
+            sources = [
+                AGENT_DISPLAY_NAMES.get(agent, agent)
+                for agent in selected_agents
+            ]
+            st.caption(f"Sources searched: {', '.join(sources)}")
 
         c1, c2 = st.columns(2)
         with c1:
@@ -169,8 +193,15 @@ for message in st.session_state.messages:
         
         if "retrieval_info" in message:
             info = message["retrieval_info"]
-            route = info.get("route", "unknown").upper()
-            render_retrieval_verification(info, title=f"🔍 Retrieval Verification ({route})", expanded=False)
+            route = ROUTE_DISPLAY_NAMES.get(
+                info.get("route", ""),
+                "Unknown",
+            )
+            render_retrieval_verification(
+                info,
+                title=f"Retrieval details · {route}",
+                expanded=False,
+            )
 
 
 st.markdown("### 💡 Suggested Questions")
@@ -181,8 +212,8 @@ if c1.button("🕸️ Who directed The Matrix?", width="stretch"):
     suggestion = "Who directed The Matrix?"
 if c2.button("📄 Summarize uploaded file", width="stretch"):
     suggestion = "Summarize the uploaded document."
-if c3.button("🌐 Box Office Gladiator 2?", width="stretch"):
-    suggestion = "What is the current box office usage for Gladiator 2?"
+if c3.button("🌐 Gladiator 2 box office?", width="stretch"):
+    suggestion = "What is the current box office for Gladiator 2?"
 
 prompt = st.chat_input("Ask a question...")
 
@@ -207,6 +238,7 @@ if prompt:
             
             answer = result.get("answer", "No answer generated.")
             route = result.get("route", "unknown")
+            route_label = ROUTE_DISPLAY_NAMES.get(route, "Research")
             selected_agents = result.get("selected_agents", [])
             
             retrieval_info = {
@@ -225,14 +257,23 @@ if prompt:
             
             st.markdown(answer)
             if selected_agents:
-                st.caption(f"⏱️ Generated in {duration:.2f}s via **{route.upper()}** | Agents: **{', '.join(selected_agents)}**")
+                sources = ", ".join(
+                    AGENT_DISPLAY_NAMES.get(agent, agent)
+                    for agent in selected_agents
+                )
+                st.caption(
+                    f"⏱️ {duration:.2f}s · {route_label} · "
+                    f"Sources: **{sources}**"
+                )
             else:
-                st.caption(f"⏱️ Generated in {duration:.2f}s via **{route.upper()}**")
+                st.caption(
+                    f"⏱️ {duration:.2f}s · {route_label}"
+                )
             
             if res:
                 render_retrieval_verification(
                     retrieval_info,
-                    title=f"🔍 Retrieval Verification ({route.upper()})",
+                    title=f"Retrieval details · {route_label}",
                     expanded=True,
                 )
     

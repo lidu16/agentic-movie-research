@@ -84,4 +84,7 @@ If evidence is insufficient, say what is missing briefly.
 {web_context}
 
 Respond with a clear, concise final answer.
+When web context supports a claim, cite it with a Markdown link using the
+provided source title and URL. Never invent or alter source URLs. Do not add
+citations when no source URL was provided.
 """

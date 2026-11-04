@@ -1,8 +1,9 @@
-import time
+
 from typing import TypedDict
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from core.config import config
+from core.llm_utils import normalize_llm_text
 
 
 class VerificationState(TypedDict, total=False):
@@ -21,67 +22,113 @@ llm = ChatGoogleGenerativeAI(
 )
 
 
-def _invoke_llm_with_retry(prompt, max_attempts: int = 3, base_delay: float = 0.8):
-    last_error = None
-    for attempt in range(1, max_attempts + 1):
-        try:
-            return llm.invoke(prompt)
-        except Exception as exc:
-            last_error = exc
-            if attempt < max_attempts:
-                time.sleep(base_delay * attempt)
-    raise RuntimeError(f"Verification LLM call failed after {max_attempts} attempts: {last_error}")
+def _invoke_llm(prompt):
+    """Make one LLM request without unnecessary retries."""
+    return llm.invoke(prompt)
 
 
 def critique_node(state: VerificationState) -> dict:
     prompt = f"""
-    Question: {state['question']}
-    Draft Answer: {state['draft']}
+Question: {state.get('question', '')}
 
-    Evidence:
-    --- NEO4J GRAPH CONTEXT ---
-    {state.get('graph_context', '')}
+Draft Answer:
+{state.get('draft', '')}
 
-    --- UPLOADED DOCUMENT CONTEXT ---
-    {state.get('session_context', '')}
+Evidence:
+--- NEO4J GRAPH CONTEXT ---
+{state.get('graph_context', '')}
 
-    Critique the draft for accuracy against the evidence above.
-    If it is correct, say so. If not, explain what is wrong or missing.
-    """
+--- UPLOADED DOCUMENT CONTEXT ---
+{state.get('session_context', '')}
+
+Check whether the draft is accurate based on the evidence.
+
+If correct, say APPROVED.
+If incorrect, briefly explain what needs correction.
+"""
+
     try:
-        response = _invoke_llm_with_retry(prompt)
-        return {"critique": response.content}
+        response = _invoke_llm(prompt)
+        critique = normalize_llm_text(response.content)
+
+        return {"critique": critique}
+
     except Exception as exc:
-        return {"critique": f"Verification failed: {exc}"}
+        return {
+            "critique": f"Verification unavailable: {exc}"
+        }
 
 
 def revise_node(state: VerificationState) -> dict:
     prompt = f"""
-    Question: {state['question']}
-    Draft Answer: {state['draft']}
-    Critique: {state.get('critique', '')}
+Question: {state.get('question', '')}
 
-    Produce a corrected, concise final answer using the evidence.
-    If the draft is already correct, return it unchanged.
-    """
+Draft Answer:
+{state.get('draft', '')}
+
+Critique:
+{normalize_llm_text(state.get('critique', ''))}
+
+Produce a corrected, concise final answer using the available evidence.
+
+If the draft is already correct, return it unchanged.
+Do not invent unsupported facts.
+"""
+
     try:
-        response = _invoke_llm_with_retry(prompt)
-        return {"final_answer": response.content}
-    except Exception as exc:
-        return {"final_answer": f"I couldn't verify the answer due to an error: {exc}"}
+        response = _invoke_llm(prompt)
+
+        return {
+            "final_answer": normalize_llm_text(response.content)
+        }
+
+    except Exception:
+        # Preserve the original answer if verification is unavailable.
+        return {
+            "final_answer": state.get("draft", "")
+        }
 
 
-def verify_answer(question: str, draft: str, graph_context: str, session_context: str) -> dict:
+def verify_answer(
+    question: str,
+    draft: str,
+    graph_context: str,
+    session_context: str
+) -> dict:
+    """Verify a draft answer and revise it when necessary."""
+
     state: VerificationState = {
         "question": question,
         "draft": draft,
         "graph_context": graph_context,
         "session_context": session_context,
     }
-    critique = critique_node(state)
-    state.update(critique)
-    revised = revise_node(state)
+
+    # Step 1: Check the draft answer.
+    critique_result = critique_node(state)
+
+    # Step 2: Normalize the critique before using it.
+    critique_text = normalize_llm_text(
+        critique_result.get("critique", "")
+    )
+
+    state["critique"] = critique_text
+
+    # Step 3: Avoid another Gemini request if verification failed.
+    if critique_text.startswith("Verification unavailable:"):
+        return {
+            "verification": critique_text,
+            "answer": draft,
+        }
+
+    # Step 4: Revise the answer using the critique.
+    revised_result = revise_node(state)
+
+    final_answer = normalize_llm_text(
+        revised_result.get("final_answer", draft)
+    )
+
     return {
-        "verification": state.get("critique", ""),
-        "answer": revised.get("final_answer", draft),
+        "verification": critique_text,
+        "answer": final_answer or draft,
     }

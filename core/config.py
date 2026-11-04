@@ -13,7 +13,7 @@ class Config:
     NEO4J_PASSWORD: str = os.getenv("NEO4J_PASSWORD", "")
     
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-    GEMINI_MODEL: str = "gemini-2.0-flash"
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
     GEMINI_EMBEDDING_MODEL: str = os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001")
     
     TAVILY_API_KEY: str = os.getenv("TAVILY_API_KEY", "")

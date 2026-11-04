@@ -1,6 +1,7 @@
 from typing import Any
 from langchain_google_genai import ChatGoogleGenerativeAI
 from core.config import config
+from core.llm_utils import normalize_llm_text
 from knowledge_graph.neo4j_reader import get_reader
 
 
@@ -114,7 +115,7 @@ def generate_graph_plan(question: str, schema: str = "") -> dict[str, Any]:
         """
         
         response = llm.invoke(prompt)
-        content = str(response.content)
+        content = normalize_llm_text(response.content)
         return _safe_parse_plan(content, question)
         
     except Exception as e:
