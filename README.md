@@ -1,249 +1,323 @@
-# Agentic Movie Research System
+# 🎬 Agentic Movie Research System
 
-A movie-focused research assistant that combines a Neo4j knowledge graph, uploaded scripts and documents, web search, and Google Gemini. A Streamlit chat interface presents the answer alongside retrieval details so users can see which sources were searched.
+A movie-focused AI research assistant that combines a **Neo4j knowledge graph**, uploaded movie scripts and documents, web search, and **Google Gemini** to answer movie-related questions.
 
-The application is built around a typed LangGraph state and explicit retrieval nodes. Its routing is currently rule-based, while Gemini helps plan graph retrieval and synthesize answers. This distinction keeps the implementation transparent: the workflow is orchestrated and LLM-assisted, but it is not an autonomous or parallel multi-agent system.
+The application uses **LangGraph** to orchestrate retrieval and answer-generation steps, while a **Streamlit interface** allows users to interact with the assistant, upload documents, and inspect the information retrieved from different sources.
 
-![Hybrid movie research interface](hybrid-rag-demo.png)
+![Hybrid Movie Research Interface](hybrid-rag-demo.png)
 
-## Features
+## ✨ Features
 
-- **Hybrid movie research:** Standard movie questions use both Neo4j and web search. Questions that explicitly request current or recent information are routed to web search.
-- **Movie knowledge graph:** Searches configured text properties in Neo4j, expands matching nodes to neighboring relationships, and can use a Gemini-generated read-only Cypher plan.
-- **Uploaded-document Q&A:** Accepts PDF and TXT files, extracts and splits their text, embeds the resulting chunks with Gemini, and retrieves the three most similar chunks for a question.
-- **Web search:** Uses Tavily when configured, with a Bing-backed `ddgs` fallback. Search results are bounded and include source URLs in the context passed to the answer model.
-- **Answer verification:** Graph- and document-assisted answers can go through a Gemini critique and revision step. Web-only answers skip this step.
-- **Retrieval visibility:** The Streamlit UI displays the selected sources, graph and document matches, web context, and search errors.
-- **Optional tracing:** LangSmith tracing can be enabled for observability.
-- **Command-line interface:** `core/main.py` provides a separate interactive movie-question workflow.
+- **Hybrid Movie Research:** Combines structured knowledge from Neo4j with information from web search to answer movie-related questions.
+- **Knowledge Graph Retrieval:** Searches movie-related entities and their relationships using Neo4j.
+- **AI-Assisted Graph Query Planning:** Uses Google Gemini to help generate graph retrieval plans and read-only Cypher queries.
+- **Document Question Answering:** Upload PDF and TXT files and ask questions about their contents.
+- **Semantic Document Search:** Uses Gemini embeddings and similarity search to retrieve relevant document sections.
+- **Web Search Integration:** Retrieves current information using Tavily, with a Bing-backed `ddgs` fallback.
+- **Answer Generation:** Uses Google Gemini to synthesize retrieved information into natural-language responses.
+- **Answer Verification:** Supports AI-powered critique and revision using retrieved graph and document context.
+- **Retrieval Transparency:** Displays selected sources, graph matches, document results, web context, and search errors.
+- **Optional LangSmith Tracing:** Supports tracing for monitoring and debugging model workflows.
+- **Command-Line Interface:** Includes an interactive movie-question workflow through `core/main.py`.
 
-## Architecture
+## 🏗️ Architecture
+
+The application combines structured graph retrieval, semantic document retrieval, and web search in a LangGraph-orchestrated workflow.
+
+![Project Architecture Diagram](graph-diagram.png)
+
+### Main workflow
 
 ```mermaid
 flowchart TD
-    U[Question in Streamlit] --> S[Initialize graph schema]
-    S --> R[Rule-based router]
-    R --> N[Neo4j retrieval]
-    N --> D[Uploaded-document retrieval]
-    D --> W[Web search]
-    W --> A[Gemini answer synthesis]
-    A --> V{Graph or document source selected?}
-    V -->|Yes| C[Gemini critique and revision]
-    V -->|No| E[Return answer]
+    U[User Question] --> S[Initialize Graph Schema]
+    S --> R[Source Router]
+    R --> N[Neo4j Retrieval]
+    N --> D[Document Retrieval]
+    D --> W[Web Search]
+    W --> A[Gemini Answer Generation]
+    A --> V{Graph or Document Context?}
+    V -->|Yes| C[Answer Critique and Revision]
+    V -->|No| E[Final Answer]
     C --> E
-    E --> UI[Answer and retrieval details]
+    E --> UI[Display Answer and Sources]
 
-    UP[PDF or TXT upload] --> X[Extract and split text]
-    X --> EM[Gemini document embeddings]
-    EM --> VS[Session-scoped in-memory vector store]
+    UP[PDF or TXT Upload] --> X[Text Extraction and Chunking]
+    X --> EM[Gemini Embeddings]
+    EM --> VS[Session Vector Store]
     VS --> D
 
-    N --> DB[(Neo4j movie graph)]
-    W --> WEB[Tavily, or Bing via ddgs]
+    N --> DB[(Neo4j Knowledge Graph)]
+    W --> WEB[Tavily or Bing Search]
     A --> GEM[Google Gemini]
 ```
 
-The retrieval and answer nodes are connected sequentially in LangGraph. If a source is not selected, its node returns empty context; the graph is not dynamically branched or run in parallel. The uploaded-document vector store and chat history live in Streamlit session state rather than a persistent document database.
+### Retrieval sources
 
-## LangGraph workflow and state
+| Source | Description |
+|---|---|
+| Neo4j Knowledge Graph | Retrieves movie entities, properties, and relationships. |
+| Uploaded Documents | Extracts and retrieves relevant sections from PDF and TXT files. |
+| Web Search | Retrieves external information through Tavily or the `ddgs` fallback. |
+| Google Gemini | Supports graph-query planning, embeddings, answer synthesis, and answer critique. |
 
-`core/rag_pipeline.py` defines a `TypedDict` state and compiles this workflow:
+## 🧠 LangGraph Workflow
+
+The workflow is defined in `core/rag_pipeline.py` using a typed shared state.
 
 ```mermaid
 flowchart LR
-    START --> introspect --> router --> neo4j_agent --> rag_agent
-    rag_agent --> web_agent --> answer --> verify --> END
+    START --> introspect
+    introspect --> router
+    router --> neo4j_agent
+    neo4j_agent --> rag_agent
+    rag_agent --> web_agent
+    web_agent --> answer
+    answer --> verify
+    verify --> END
 ```
 
-The graph state carries the user question, selected route and agents, Neo4j schema and result counts, graph/document/web context, the session vector store, answer, verification, and error information. The router selects sources using question keywords and upload availability. Each retrieval node skips its work when its source is not selected.
+The shared workflow state carries information such as:
 
-## Tools and integrations
+- User question
+- Selected retrieval sources
+- Neo4j schema information
+- Graph retrieval context and result counts
+- Uploaded-document retrieval context
+- Web search context and errors
+- Session document store
+- Generated answer and verification information
 
-| Component | Role in this implementation |
+The source router determines which retrieval sources are relevant to a question. Each retrieval node performs its work when its source is selected.
+
+## 🛠️ Technologies and Integrations
+
+| Technology | Purpose |
 |---|---|
-| Streamlit | Chat UI, PDF/TXT upload, session history, and retrieval inspection |
-| LangGraph | Sequential workflow orchestration and typed shared state |
-| Neo4j Python driver | Movie-graph schema inspection, keyword matching, neighborhood expansion, and planned Cypher execution |
-| Google Gemini via LangChain | Graph-query planning, document embeddings, answer synthesis, and optional critique/revision |
-| Tavily | Optional primary web-search provider when `TAVILY_API_KEY` is configured |
+| Python | Main application language |
+| Streamlit | Interactive chat interface and document uploads |
+| LangGraph | Workflow orchestration and shared state management |
+| LangChain | LLM and retrieval integrations |
+| Neo4j | Movie knowledge graph database |
+| Google Gemini | Language model, embeddings, and answer generation |
+| Tavily | Primary web-search integration when configured |
 | `ddgs` | Bing-backed web-search fallback |
-| LangSmith | Optional tracing when tracing is enabled and an API key is configured |
-| PyPDF and LangChain text splitters | PDF text extraction and document chunking |
-| NumPy | In-memory embedding similarity calculations |
+| LangSmith | Optional LLM tracing and observability |
+| PyPDF | PDF text extraction |
+| LangChain Text Splitters | Document chunking |
+| NumPy | Embedding similarity calculations |
 
-The default model settings in `core/config.py` are `gemini-3.8-flash` for language-model calls and `gemini-embedding-001` for embeddings. Both can be configured through environment variables.
+### Model configuration
 
-## Engineering contributions and implementation decisions
+The default model settings in `core/config.py` are:
 
-The current codebase demonstrates the following implementation work without implying that every component originated in this iteration:
+- **Language model:** `gemini-3.8-flash`
+- **Embedding model:** `gemini-embedding-001`
 
-- Normalizes structured Gemini response content into readable text before displaying answers or parsing graph plans.
-- Routes regular movie questions to both graph and web sources, time-sensitive questions to web search, and explicit uploaded-document questions to the document retriever when a file is available.
-- Uses Tavily when configured and falls back to Bing search through `ddgs` when Tavily is unavailable or not configured.
-- Keeps each retrieval source visible in the UI to make empty results and search failures easier to diagnose.
-- Includes focused regression tests for response normalization, routing, answer formatting, and successful fallback-search status.
+These settings can be configured through environment variables.
 
-The graph and document retrieval mechanisms, Streamlit application structure, and LangGraph workflow are described as implemented system components rather than claimed as individually authored from scratch.
-
-## Project structure
+## 📁 Project Structure
 
 ```text
 .
-├── app.py                         # Streamlit chat application
+├── app.py
 ├── core/
-│   ├── agent_hub.py               # Routing, retrieval agents, answer synthesis
-│   ├── config.py                  # Environment-backed settings
-│   ├── doc_processor.py           # PDF/TXT extraction and chunking
-│   ├── langsmith_setup.py         # Optional tracing configuration
-│   ├── llm_utils.py               # Gemini response text normalization
-│   ├── main.py                    # Interactive CLI
-│   ├── rag_pipeline.py            # LangGraph state and workflow
-│   └── verification.py            # Answer critique and revision
+│   ├── agent_hub.py
+│   ├── config.py
+│   ├── doc_processor.py
+│   ├── langsmith_setup.py
+│   ├── llm_utils.py
+│   ├── main.py
+│   ├── rag_pipeline.py
+│   └── verification.py
 ├── document_store/
-│   ├── session_store.py           # Session-scoped in-memory vector store
-│   └── vector_store.py            # Gemini embeddings and cosine similarity
+│   ├── session_store.py
+│   └── vector_store.py
 ├── knowledge_graph/
-│   ├── neo4j_reader.py            # Neo4j access and graph operations
-│   └── retriever.py               # Graph-plan parsing and execution
+│   ├── neo4j_reader.py
+│   └── retriever.py
 ├── prompt/
-│   └── agent_prompts.py           # Graph and answer prompts
+│   └── agent_prompts.py
 ├── tests/
-│   ├── manual_test.py             # Workflow-construction smoke check
-│   ├── test_agent_routing.py      # Routing and agent behavior tests
-│   └── test_llm_utils.py          # Response-normalization tests
-├── .env.example                   # Environment-variable template
-├── graph-diagram.png              # Workflow illustration for the UI
-├── hybrid-rag-demo.png            # Example application image
+│   ├── manual_test.py
+│   ├── test_agent_routing.py
+│   └── test_llm_utils.py
+├── .env.example
+├── graph-diagram.png
+├── hybrid-rag-demo.png
 └── requirements.txt
 ```
 
-## Installation and configuration
+### Core modules
 
-### Requirements
+| Module | Responsibility |
+|---|---|
+| `app.py` | Streamlit application and user interface |
+| `core/agent_hub.py` | Source routing, retrieval agents, and answer synthesis |
+| `core/rag_pipeline.py` | LangGraph workflow and shared state |
+| `core/doc_processor.py` | PDF/TXT extraction and text chunking |
+| `core/verification.py` | Answer critique and revision |
+| `core/llm_utils.py` | Gemini response normalization |
+| `core/config.py` | Application configuration |
+| `document_store/session_store.py` | Session-scoped document vector storage |
+| `document_store/vector_store.py` | Embeddings and similarity calculations |
+| `knowledge_graph/neo4j_reader.py` | Neo4j database operations |
+| `knowledge_graph/retriever.py` | Graph retrieval and query-plan handling |
+| `prompt/agent_prompts.py` | Prompts used by the retrieval and answer components |
+| `core/main.py` | Interactive command-line interface |
 
-- Python with `venv` and `pip`
-- A reachable Neo4j instance containing a movie graph
+## ⚙️ Installation and Configuration
+
+### Prerequisites
+
+Make sure you have:
+
+- Python installed
+- A reachable Neo4j database containing movie-related data
 - A Google Gemini API key
-- Optional: a Tavily API key for primary web search
-- Optional: a LangSmith API key for tracing
+- Optional: a Tavily API key
+- Optional: a LangSmith API key
 
-The application does not create or seed a Neo4j database. Configure `NEO4J_URI`, `NEO4J_USER`, and `NEO4J_PASSWORD` for an existing database.
+### 1. Clone the repository
 
-### Windows PowerShell
+```powershell
+git clone https://github.com/Fraol-M/rag-demonstration.git
+cd rag-demonstration
+```
 
-From the project directory:
+### 2. Create a virtual environment
 
 ```powershell
 py -m venv .venv
+```
+
+Activate it:
+
+```powershell
 .\.venv\Scripts\Activate.ps1
+```
+
+If PowerShell blocks activation, use the environment's Python executable directly.
+
+### 3. Install dependencies
+
+```powershell
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
+```
+
+### 4. Configure environment variables
+
+Create your environment file:
+
+```powershell
 Copy-Item .env.example .env
+```
+
+Open `.env`:
+
+```powershell
 notepad .env
 ```
 
-If PowerShell prevents virtual-environment activation, you can invoke the environment's Python directly instead:
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-```
-
-Set the required values in `.env`:
+Add your configuration:
 
 ```dotenv
+# Neo4j database
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
-NEO4J_PASSWORD=replace_with_your_neo4j_password
+NEO4J_PASSWORD=your_neo4j_password
 
-GEMINI_API_KEY=replace_with_your_gemini_api_key
+# Google Gemini
+GEMINI_API_KEY=your_gemini_api_key
 GEMINI_MODEL=gemini-3.8-flash
 GEMINI_EMBEDDING_MODEL=gemini-embedding-001
 
-# Optional: leave blank to use the ddgs Bing fallback.
+# Optional: Tavily web search
 TAVILY_API_KEY=
 
-# Optional LangSmith tracing.
+# Optional: LangSmith tracing
 LANGSMITH_TRACING=false
 LANGSMITH_API_KEY=
 LANGSMITH_PROJECT=llm-demonstration
 LANGSMITH_ENDPOINT=https://api.smith.langchain.com
 ```
 
-`NEO4J_PASSWORD` and `GEMINI_API_KEY` are required by the app's configuration check. To use LangSmith, enable tracing and supply its API key. Keep `.env` private; it is excluded from Git.
+Replace the example values with your actual credentials.
 
-## Run the application
+**Important:** The application requires a configured Neo4j database and Gemini API key. Keep your `.env` file private and never commit API keys or passwords to GitHub.
 
-Start the Streamlit app from the repository root:
+## 🚀 Running the Application
+
+From the project root, run:
 
 ```powershell
 streamlit run app.py
 ```
 
-Use the browser UI to ask a movie question, upload a PDF or TXT script, inspect retrieval details, and ask questions that request current information. In the sidebar, the app also displays the Neo4j schema and a pipeline illustration.
+Streamlit will start the application and provide a local browser address.
 
-To use the interactive command-line interface instead:
+### Using the application
+
+1. Open the Streamlit application in your browser.
+2. Enter a movie-related question in the chat.
+3. Upload a PDF or TXT document when you want to ask questions about its contents.
+4. Ask questions about movie information, relationships, or uploaded material.
+5. Inspect the retrieval details to see the sources and context used.
+6. Explore the available schema and workflow information in the interface.
+
+### Running the command-line interface
+
+The project also provides an interactive CLI:
 
 ```powershell
 python -m core.main
 ```
 
-The CLI invokes the graph pipeline without a Streamlit upload session; it does not provide the UI's document-upload workflow.
+## 🧪 Running Tests
 
-## Tests and checks
-
-Run the unit and regression tests:
+Run the project's unit and regression tests:
 
 ```powershell
 python -m unittest discover -s tests -p "test_*.py" -v
 ```
 
-The manual smoke check verifies that the LangGraph workflow can be built. It intentionally does not make live model or database requests:
+You can also run the workflow construction smoke check:
 
 ```powershell
 $env:PYTHONIOENCODING = "utf-8"
 python tests/manual_test.py
 ```
 
-End-to-end retrieval requires valid API credentials, network access, and a reachable Neo4j database. A passing unit test or workflow-build check does not validate those external services.
+For end-to-end retrieval, ensure that your API credentials, network connection, and Neo4j database are configured correctly.
 
-## Assignment requirements and implementation status
+## 💡 Engineering Highlights
 
-No separate assignment brief or grading rubric is included in the repository. The table below evaluates the capabilities described by this project's source code and UI; it should not be read as a claim about an unseen rubric.
+The project brings together several practical AI engineering concepts:
 
-| Capability | Status | Evidence and scope |
-|---|---|---|
-| Movie question answering | Implemented | LangGraph retrieval and Gemini answer synthesis are wired into the Streamlit UI and CLI. Answer quality depends on retrieved evidence and configured services. |
-| Knowledge-graph retrieval | Implemented | Neo4j schema inspection, text-property keyword search, and one-hop relationship expansion are present. |
-| Graph query planning | Partially implemented | Gemini can propose search terms or read-only Cypher. Cypher safety checks use keyword screening rather than a full Cypher parser or database-level read-only transaction. |
-| Uploaded PDF/TXT retrieval | Implemented | Text extraction, 1,000-character chunks with overlap, Gemini embeddings, and top-three in-memory similarity search are present. The UI currently replaces the prior document when another file is uploaded. |
-| Current web information | Implemented | Tavily is optional; the `ddgs` Bing backend is the fallback. Availability and result quality depend on external providers and the network. |
-| Source citations | Partially implemented | Web source URLs are included in retrieval context and the answer prompt asks Gemini to cite them. Citation format and factual support are not validated programmatically. |
-| Answer verification | Partially implemented | Graph/document answers can be critiqued and revised with Gemini. Web context is not passed to the verifier, and verification remains model-generated. |
-| Multi-agent orchestration | Partially implemented | The system has source-specific workflow nodes in LangGraph. Routing is keyword-based and the nodes run sequentially; this is not autonomous planning or parallel agent execution. |
-| Persistence and multi-user document management | Not implemented | Uploaded chunks and chat messages live in Streamlit session state and are not backed by a persistent document store. |
-| Automated external-service tests | Not implemented | The unit tests focus on local behavior; the manual smoke check builds the workflow but skips live execution. |
+- **Retrieval-Augmented Generation (RAG):** Grounds generated answers in retrieved information rather than relying only on the language model's internal knowledge.
+- **Hybrid Retrieval:** Combines structured knowledge-graph information with semantic search over uploaded documents and external web results.
+- **Workflow Orchestration:** Uses LangGraph to organize retrieval and answer-generation steps around shared state.
+- **Semantic Search:** Converts document chunks into embeddings and retrieves relevant content through similarity calculations.
+- **LLM-Assisted Query Planning:** Uses Gemini to support graph retrieval planning.
+- **Answer Critique:** Uses a model-assisted verification step to review and revise answers supported by graph and document context.
+- **Observability:** Supports LangSmith tracing to help inspect model execution.
 
-## Evaluation, limitations, and future improvements
+## 🔮 Future Improvements
 
-### Current limitations
+Potential directions for extending the system include:
 
-- Rule-based routing can miss user intent or select a source unnecessarily.
-- Neo4j results depend on the existing graph schema and configured text properties; the project does not ship a database seed or migration.
-- Uploaded files are processed one at a time in the UI, held in memory for the active session, and embedded through API calls.
-- The Cypher validator is a lightweight keyword check and should not be treated as a security boundary. Use least-privilege Neo4j credentials and strengthen query validation before exposing this system to untrusted users.
-- Search results and answers depend on third-party service availability, API quotas, and model behavior.
-- Citations are prompted rather than checked against generated claims, and the verification step does not use web evidence.
-- The existing tests do not exercise live Gemini, Tavily/Bing, or Neo4j integrations.
+- More flexible intent classification and source selection.
+- Improved graph-query validation and database security.
+- Persistent storage for uploaded documents and conversation history.
+- Support for multiple uploaded documents.
+- Stronger source attribution and citation validation.
+- Expanded integration testing and retrieval evaluation.
 
-### Potential next steps
+## 📄 License
 
-- Replace keyword routing with a tested intent classifier or a structured LLM router, while retaining explicit routing observability.
-- Use read-only Neo4j transactions and a proper Cypher parser or constrained query interface.
-- Add integration tests with mocked provider boundaries and a documented Neo4j fixture.
-- Support multiple uploaded files, persistent storage, and clear document lifecycle controls.
-- Validate generated citations and verify answers against all selected sources, including web results.
-- Add application-level timeouts, user-facing error handling, and operational metrics for external-service failures.
+Please refer to the repository owner for licensing and reuse permissions. Check the repository for an applicable license before redistributing or reusing the project.
 
-## License and attribution
+---
 
-There is no `LICENSE`, `NOTICE`, or `COPYING` file in the repository, so the project currently declares no open-source license. Do not assume that it may be redistributed under a particular license. Before publishing or reusing the code, confirm the applicable rights with the repository owner and preserve any copyright, attribution, and license notices required for reused or inherited material.
+**Built with Python, LangGraph, Neo4j, Google Gemini, and Streamlit.**
